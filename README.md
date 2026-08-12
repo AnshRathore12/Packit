@@ -2,7 +2,6 @@
   <img src="https://img.shields.io/badge/platform-iOS%2016%2B-blue?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/swift-5-orange?style=for-the-badge&logo=swift" alt="Swift">
   <img src="https://img.shields.io/badge/SPM-compatible-brightgreen?style=for-the-badge" alt="SPM">
-  <img src="https://img.shields.io/badge/license-MIT-lightgrey?style=for-the-badge" alt="License">
 </p>
 
 # 📦 Packit
@@ -26,6 +25,9 @@ Packit lets you intercept, inspect, and debug every HTTP/HTTPS request in your a
 
 ---
 
+
+---
+
 ## 📋 Requirements
 
 | Requirement | Minimum |
@@ -46,7 +48,7 @@ Packit lets you intercept, inspect, and debug every HTTP/HTTPS request in your a
 3. Enter the repository URL:
 
    ```
-   https://github.com/AnshumanRathore28/Packit.git
+   https://github.com/AnshRathore12/Packit.git
    ```
 
 4. Set the dependency rule to **Up to Next Major Version** from `1.0.0`.
@@ -57,7 +59,7 @@ Packit lets you intercept, inspect, and debug every HTTP/HTTPS request in your a
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/AnshumanRathore28/Packit.git", from: "1.0.0")
+    .package(url: "https://github.com/AnshRathore12/Packit.git", from: "1.0.0")
 ]
 ```
 
@@ -126,6 +128,16 @@ NavigationLink("Debug Network") {
 
 ## 🔧 Feature Guide
 
+<table align="center">
+  <tr>
+    <td align="center"><img src="https://github.com/user-attachments/assets/3c1e5609-2b38-4735-960d-6f24eaf982e5" width="180" alt="Packit screenshot 1" /></td>
+    <td align="center"><img src="https://github.com/user-attachments/assets/356ea199-9a0c-474d-a63e-d1b0a9de9676" width="180" alt="Packit screenshot 2" /></td>
+    <td align="center"><img src="https://github.com/user-attachments/assets/c02db45b-3629-4e95-abc7-df6a516b8ae5" width="180" alt="Packit screenshot 3" /></td>
+    <td align="center"><img src="https://github.com/user-attachments/assets/8e071b2b-179e-4e2e-b5d4-29d8ae9618bd" width="180" alt="Packit screenshot 4" /></td>
+    <td align="center"><img src="https://github.com/user-attachments/assets/72b56aa6-ad41-4724-8f2a-957fb2df3eb4" width="180" alt="Packit screenshot 5" /></td>
+  </tr>
+</table>
+
 ### 🌐 Network Inspector
 
 Once `Packit.startIntercepting()` is called, every `URLSession` request (including `async/await`, Combine, Alamofire, and any library using `URLSession` under the hood) is automatically captured.
@@ -138,8 +150,6 @@ Once `Packit.startIntercepting()` is called, every `URLSession` request (includi
 - cURL command generation
 - JWT decoding for Authorization headers
 
-**Search:**
-- **Fuzzy search** — find requests by partial URL, method, or status code
 
 ---
 
@@ -209,7 +219,7 @@ To completely strip Packit from the release binary for maximum size savings, con
 let package = Package(
     name: "MyApp",
     dependencies: [
-        .package(url: "https://github.com/AnshumanRathore28/Packit.git", from: "1.0.0")
+        .package(url: "https://github.com/AnshRathore12/Packit.git", from: "1.0.0")
     ],
     targets: [
         .target(
@@ -237,7 +247,7 @@ Contributions are welcome! Here's how:
 ### Development Setup
 
 ```bash
-git clone https://github.com/AnshumanRathore28/Packit.git
+git clone https://github.com/AnshRathore12/Packit.git
 cd Packit
 open Package.swift  # Opens in Xcode
 ```
@@ -251,18 +261,8 @@ swift test
 
 ---
 
-## 📄 License
-
-Packit is released under the **MIT License**. See [LICENSE](LICENSE) for details.
-
----
-
 ## 🙏 Acknowledgments
 
 Built with ❤️ using SwiftUI and zero external dependencies.
 
 ---
-
-<p align="center">
-  <b>If Packit helped you debug faster, consider giving it a ⭐️</b>
-</p>
