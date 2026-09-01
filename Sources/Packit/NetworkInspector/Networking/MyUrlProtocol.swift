@@ -1,122 +1,369 @@
+//
+//  MyURLProtocol.swift
+//  NetworkInspector
+//
+
 @preconcurrency import Foundation
 
- final class MyURLProtocol: URLProtocol, URLSessionDataDelegate,  URLSessionTaskDelegate {
+final class MyURLProtocol: URLProtocol,
+                           URLSessionDataDelegate,
+                           URLSessionTaskDelegate {
+
+    // MARK: - Constants
+
     private static let handledKey = "MyURLProtocolHandledKey"
+
+    // Prevent huge request/response bodies from causing memory pressure.
+    private static let maxRequestBodySize = 1 * 1024 * 1024      // 1 MB
+    private static let maxResponseBodySize = 2 * 1024 * 1024     // 2 MB
+
+    // MARK: - Properties
+
     private var dataTask: URLSessionDataTask?
+
     private var transactionId: UUID?
+
     private var responseData = Data()
+
     private var response: URLResponse?
+
     private var responseError: Error?
 
+    private var isResponseTruncated = false
+
+    // Keep the forwarding session alive while the task is running.
+    private var session: URLSession?
+
+    // MARK: - URLProtocol
+
     override class func canInit(with request: URLRequest) -> Bool {
-        if URLProtocol.property(forKey: handledKey, in: request) != nil {
+
+        // Prevent infinite interception.
+        if URLProtocol.property(
+            forKey: handledKey,
+            in: request
+        ) != nil {
             return false
         }
-        guard let url = request.url, let scheme = url.scheme else { return false }
-        return ["http", "https"].contains(scheme)
+
+        guard let scheme = request.url?.scheme?.lowercased() else {
+            return false
+        }
+
+        // Only intercept HTTP/HTTPS.
+        return scheme == "http" || scheme == "https"
     }
 
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        return request
+    override class func canonicalRequest(
+        for request: URLRequest
+    ) -> URLRequest {
+        request
     }
+
+    // MARK: - Start Loading
 
     override func startLoading() {
-        guard let request = (request as NSURLRequest).mutableCopy() as? NSMutableURLRequest else { return }
-        URLProtocol.setProperty(true, forKey: MyURLProtocol.handledKey, in: request)
-        
-        // If the request uses a stream (like Alamofire POSTs), extract it into httpBody
-        if request.httpBody == nil, let stream = request.httpBodyStream {
-            stream.open()
-            var data = Data()
-            let bufferSize = 4096
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-            
-            while true {
-                let read = stream.read(buffer, maxLength: bufferSize)
-                if read > 0 {
-                    data.append(buffer, count: read)
-                } else {
-                    break // EOF or Error
-                }
-            }
-            buffer.deallocate()
-            stream.close()
-            
-            request.httpBody = data
+        // Work on a mutable copy of the original request
+        guard let mutableRequest = (request as NSURLRequest).mutableCopy() as? NSMutableURLRequest else {
+            return
         }
-        
-        let transaction = NetworkTransaction(request: request as URLRequest, startTime: Date())
-        self.transactionId = transaction.id
+
+        // Prevent this request from being intercepted again
+        URLProtocol.setProperty(
+            true,
+            forKey: Self.handledKey,
+            in: mutableRequest
+        )
+
+        // If request uses a stream, convert it to Data
+        if mutableRequest.httpBody == nil,
+           let bodyStream = mutableRequest.httpBodyStream {
+            if let body = Self.readBody(
+                from: bodyStream,
+                maxSize: Self.maxRequestBodySize
+            ) {
+                mutableRequest.httpBody = body
+            }
+        }
+
+        let finalRequest = mutableRequest as URLRequest
+
+        let transaction = NetworkTransaction(
+            request: finalRequest,
+            startTime: Date()
+        )
+
+        transactionId = transaction.id
         NetworkStore.shared.addTransaction(transaction)
-        
+
         let configuration = URLSessionConfiguration.default
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        dataTask = session.dataTask(with: request as URLRequest)
-        dataTask?.resume()
+
+        let session = URLSession(
+            configuration: configuration,
+            delegate: self,
+            delegateQueue: nil
+        )
+
+        self.session = session
+
+        let task = session.dataTask(with: finalRequest)
+        self.dataTask = task
+        task.resume()
     }
 
+    // MARK: - Stop Loading
+
     override func stopLoading() {
+
         dataTask?.cancel()
+
+        dataTask = nil
+
+        session?.invalidateAndCancel()
+        session = nil
     }
-    
+
     // MARK: - URLSessionDataDelegate
-    
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (
+            URLSession.ResponseDisposition
+        ) -> Void
+    ) {
+
         self.response = response
-        self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+
+        // Forward response to original URLProtocol client.
+        client?.urlProtocol(
+            self,
+            didReceive: response,
+            cacheStoragePolicy: .notAllowed
+        )
+
         completionHandler(.allow)
     }
-    
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        self.responseData.append(data)
-        self.client?.urlProtocol(self, didLoad: data)
-    }
-    
-    // MARK: - URLSessionTaskDelegate
-    
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        self.responseError = error
-        
-        if let id = self.transactionId {
-            NetworkStore.shared.updateTransaction(id: id, with: self.response, data: self.responseData, error: error)
-        }
-        
-        if let error = error {
-            self.client?.urlProtocol(self, didFailWithError: error)
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+
+        // Capture only a limited amount of response data.
+        if responseData.count < Self.maxResponseBodySize {
+
+            let remaining =
+                Self.maxResponseBodySize - responseData.count
+
+            if data.count <= remaining {
+                responseData.append(data)
+            } else {
+                responseData.append(
+                    data.prefix(remaining)
+                )
+
+                isResponseTruncated = true
+            }
         } else {
-            self.client?.urlProtocolDidFinishLoading(self)
+            isResponseTruncated = true
         }
+
+        // IMPORTANT:
+        // Always forward the ORIGINAL data to the app.
+        client?.urlProtocol(
+            self,
+            didLoad: data
+        )
     }
-    
-    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
-        guard let id = self.transactionId else { return }
-        guard let transactionMetrics = metrics.transactionMetrics.last else { return }
-        
-        DispatchQueue.main.async {
-            if let index = NetworkStore.shared.transactions.firstIndex(where: { $0.id == id }) {
-                var tx = NetworkStore.shared.transactions[index]
-                
-                if let fetchStart = transactionMetrics.fetchStartDate,
-                   let domainStart = transactionMetrics.domainLookupStartDate,
-                   let domainEnd = transactionMetrics.domainLookupEndDate,
-                   let connectStart = transactionMetrics.connectStartDate,
-                   let secureStart = transactionMetrics.secureConnectionStartDate,
-                   let connectEnd = transactionMetrics.connectEndDate,
-                   let requestStart = transactionMetrics.requestStartDate,
-                   let responseStart = transactionMetrics.responseStartDate,
-                   let responseEnd = transactionMetrics.responseEndDate {
-                    
-                    tx.dnsDuration = domainEnd.timeIntervalSince(domainStart)
-                    tx.connectDuration = connectEnd.timeIntervalSince(connectStart)
-                    tx.tlsDuration = connectEnd.timeIntervalSince(secureStart)
-                    tx.ttfbDuration = responseStart.timeIntervalSince(requestStart)
-                    tx.downloadDuration = responseEnd.timeIntervalSince(responseStart)
-                }
-                
-                tx.isCacheHit = transactionMetrics.resourceFetchType == .localCache
-                
-                NetworkStore.shared.transactions[index] = tx
+
+    // MARK: - URLSessionTaskDelegate
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+
+        responseError = error
+
+        let transactionId = self.transactionId
+
+        // Capture values before cleanup.
+        let capturedResponse = response
+        let capturedData = responseData
+        let capturedTruncated = isResponseTruncated
+
+        // Update NetworkStore.
+        if let transactionId {
+
+            NetworkStore.shared.updateTransaction(
+                id: transactionId,
+                with: capturedResponse,
+                data: capturedData,
+                error: error,
+                isResponseTruncated: capturedTruncated
+            )
+        }
+
+        // Notify original URLProtocol client.
+        if let error {
+
+            client?.urlProtocol(
+                self,
+                didFailWithError: error
+            )
+
+        } else {
+
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        // Cleanup.
+        dataTask = nil
+        self.response = nil
+        self.responseError = nil
+        self.responseData.removeAll(keepingCapacity: false)
+        self.transactionId = nil
+
+        session.finishTasksAndInvalidate()
+        self.session = nil
+    }
+
+    // MARK: - Metrics
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
+
+        guard let transactionId else {
+            return
+        }
+
+        guard let metric = metrics.transactionMetrics.last else {
+            return
+        }
+
+        let dnsDuration: TimeInterval?
+
+        if let start = metric.domainLookupStartDate,
+           let end = metric.domainLookupEndDate {
+
+            dnsDuration = end.timeIntervalSince(start)
+
+        } else {
+            dnsDuration = nil
+        }
+
+        let connectDuration: TimeInterval?
+
+        if let start = metric.connectStartDate,
+           let end = metric.connectEndDate {
+
+            connectDuration = end.timeIntervalSince(start)
+
+        } else {
+            connectDuration = nil
+        }
+
+        let tlsDuration: TimeInterval?
+
+        if let start = metric.secureConnectionStartDate,
+           let end = metric.secureConnectionEndDate {
+
+            tlsDuration = end.timeIntervalSince(start)
+
+        } else {
+            tlsDuration = nil
+        }
+
+        let ttfbDuration: TimeInterval?
+
+        if let start = metric.requestStartDate,
+           let end = metric.responseStartDate {
+
+            ttfbDuration = end.timeIntervalSince(start)
+
+        } else {
+            ttfbDuration = nil
+        }
+
+        let downloadDuration: TimeInterval?
+
+        if let start = metric.responseStartDate,
+           let end = metric.responseEndDate {
+
+            downloadDuration = end.timeIntervalSince(start)
+
+        } else {
+            downloadDuration = nil
+        }
+
+        let isCacheHit =
+            metric.resourceFetchType == .localCache
+
+        // Don't perform unnecessary work on the main thread.
+        NetworkStore.shared.updateMetrics(
+            transactionId: transactionId,
+            dnsDuration: dnsDuration,
+            connectDuration: connectDuration,
+            tlsDuration: tlsDuration,
+            ttfbDuration: ttfbDuration,
+            downloadDuration: downloadDuration,
+            isCacheHit: isCacheHit
+        )
+    }
+
+    // MARK: - Request Body
+
+    private static func readBody(
+        from stream: InputStream,
+        maxSize: Int
+    ) -> Data? {
+
+        stream.open()
+
+        defer {
+            stream.close()
+        }
+
+        var data = Data()
+
+        let bufferSize = 16 * 1024
+
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(
+            capacity: bufferSize
+        )
+
+        defer {
+            buffer.deallocate()
+        }
+
+        while stream.hasBytesAvailable {
+
+            let read = stream.read(
+                buffer,
+                maxLength: min(bufferSize, maxSize - data.count)
+            )
+
+            if read <= 0 {
+                break
+            }
+
+            data.append(
+                buffer,
+                count: read
+            )
+
+            if data.count >= maxSize {
+                break
             }
         }
+
+        return data
     }
 }
