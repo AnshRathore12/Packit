@@ -6,9 +6,9 @@
 
 Intercept, inspect, and debug network requests directly inside your app — monitor traffic, search transactions, decode JWTs, and export cURL commands, all without leaving your app.
 
-[![Platform](https://img.shields.io/badge/Platform-iOS%2016%2B-lightgrey?style=flat-square)](#requirements)
-[![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square&logo=swift&logoColor=white)](#requirements)
-[![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen?style=flat-square)](#installation)
+[![Platform](https://img.shields.io/badge/Platform-iOS%2016%2B-lightgrey?style=flat-square)](#-requirements)
+[![Swift](https://img.shields.io/badge/Swift-5-orange?style=flat-square&logo=swift&logoColor=white)](#-requirements)
+[![SPM](https://img.shields.io/badge/SPM-compatible-brightgreen?style=flat-square)](#-installation)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
 </div>
